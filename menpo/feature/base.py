@@ -21,7 +21,8 @@ def lm_centres_correction(centres):
         An affine transform that performs the correction.
         Should be applied to the landmarks on the target image.
     """
-    t = Translation(-centres.min(axis=0).min(axis=0), skip_checks=True)
+    centres = centres.float()
+    t = Translation(-centres.min(dim=0).min(dim=0), skip_checks=True)
     step_v = centres[0, 0, 0]
     if centres.shape[0] > 1:
         step_v = centres[1, 0, 0] - centres[0, 0, 0]
@@ -60,14 +61,14 @@ def rebuild_feature_image(image, f_pixels):
             mask = image.mask.resize(f_pixels.shape[1:])
         else:
             # feature is same size as input
-            mask = image.mask.copy()
+            mask = image.mask.copy())
         new_image = MaskedImage(f_pixels, mask=mask, copy=False)
     else:
         new_image = Image(f_pixels, copy=False)
     if image.has_landmarks:
         if shape_changed:
             # need to adjust the landmarks
-            sf = np.array(f_pixels.shape[1:]) / np.array(image.shape)
+            sf = torch.tensor(f_pixels.shape[1:]) / torch.tensor(image.shape)
             new_image.landmarks = NonUniformScale(sf).apply(image.landmarks)
         else:
             new_image.landmarks = image.landmarks
@@ -94,7 +95,14 @@ def imgfeature(wrapped):
             # ndarray supplied to Image feature - build a
             # temp image for it and just return the pixels
             image = Image(image, copy=False)
-            return wrapped(image, *args, **kwargs).pixels
+            return wrapped(
+                image, *args, **kwargs
+                ).pixels.cpu().detach().numpy()
+        elif isinstance(image, torch.Tensor):
+            image = Image(image, copy=False)
+            return wrapped(
+                image, *args, **kwargs
+            ).pixels
         else:
             return wrapped(image, *args, **kwargs)
     return wrapper

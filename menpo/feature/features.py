@@ -2,13 +2,14 @@ from __future__ import division
 import itertools
 import warnings
 import numpy as np
+from ..utils import convert_tensors
 scipy_gaussian_filter = None  # expensive
 
 from .base import ndfeature, winitfeature, imgfeature
 from ._gradient import gradient_cython
 from .windowiterator import WindowIterator, WindowIteratorResult
 
-
+@convert_tensors
 def _np_gradient(pixels):
     """
     This method is used in the case of multi-channel images (not 2D images).
@@ -38,6 +39,7 @@ def _np_gradient(pixels):
     return np.concatenate(grad_per_channel, axis=0)
 
 
+@convert_tensors
 @ndfeature
 def gradient(pixels):
     r"""
@@ -75,6 +77,7 @@ def gradient(pixels):
         return _np_gradient(pixels)
 
 
+@convert_tensors
 @ndfeature
 def gaussian_filter(pixels, sigma):
     r"""
@@ -106,6 +109,7 @@ def gaussian_filter(pixels, sigma):
     return output
 
 
+@convert_tensors
 @winitfeature
 def hog(pixels, mode='dense', algorithm='dalaltriggs', num_bins=9,
         cell_size=8, block_size=2, signed_gradient=True, l2_norm_clip=0.2,
@@ -326,6 +330,7 @@ def hog(pixels, mode='dense', algorithm='dalaltriggs', num_bins=9,
     return hog_descriptor
 
 
+@convert_tensors
 @ndfeature
 def igo(pixels, double_angles=False, verbose=False):
     r"""
@@ -415,6 +420,7 @@ def igo(pixels, double_angles=False, verbose=False):
     return igo_pixels
 
 
+@convert_tensors
 @ndfeature
 def es(pixels, verbose=False):
     r"""
@@ -479,6 +485,7 @@ def es(pixels, verbose=False):
     return es_pixels
 
 
+@convert_tensors
 @ndfeature
 def daisy(pixels, step=1, radius=15, rings=2, histograms=2, orientations=8,
           normalization='l1', sigmas=None, ring_radii=None, verbose=False):
@@ -599,6 +606,7 @@ def daisy(pixels, step=1, radius=15, rings=2, histograms=2, orientations=8,
 
 
 # TODO: Needs fixing ...
+@convert_tensors
 @winitfeature
 def lbp(pixels, radius=None, samples=None, mapping_type='riu2',
         window_step_vertical=1, window_step_horizontal=1,
@@ -810,23 +818,23 @@ def normalize(img, scale_func=None, mode='all',
         ``True``.
     """
     if scale_func is None:
-        def scale_func(_, axis=None):
-            return np.array([1.0])
+        def scale_func(_, dim=None):
+            return torch.tensor([1.0])
 
     pixels = img.as_vector(keep_channels=True)
 
     if mode == 'all':
-        centered_pixels = pixels - np.mean(pixels)
+        centered_pixels = pixels - torch.mean(pixels)
         scale_factor = scale_func(centered_pixels)
     elif mode == 'per_channel':
-        centered_pixels = pixels - np.mean(pixels, axis=1, keepdims=1)
-        scale_factor = scale_func(centered_pixels, axis=1).reshape([-1, 1])
+        centered_pixels = pixels - torch.tensor(pixels, dim=1, keepdim=True)
+        scale_factor = scale_func(centered_pixels, dim=1).view([-1, 1])
     else:
         raise ValueError("Supported modes are {{'all', 'per_channel'}} - '{}' "
                          "is not known".format(mode))
 
-    zero_denom = (scale_factor == 0).ravel()
-    any_non_zero = np.any(zero_denom)
+    zero_denom = (scale_factor == 0).flatten()
+    any_non_zero = zero_denom.any()
     if error_on_divide_by_zero and any_non_zero:
         raise ValueError("Computed scale factor cannot be 0.0")
     elif any_non_zero:

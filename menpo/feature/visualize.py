@@ -2,8 +2,10 @@ import numpy as np
 from scipy.misc import imrotate
 
 from .base import ndfeature
+from ..utils import convert_tensors
 
 
+@convert_tensors
 @ndfeature
 def sum_channels(pixels, channels=None):
     r"""
@@ -29,6 +31,7 @@ def sum_channels(pixels, channels=None):
 
 
 # TODO: Needs fixing ...
+@convert_tensors
 @ndfeature
 def glyph(pixels, vectors_block_size=10, use_negative=False, channels=None):
     r"""
@@ -77,6 +80,7 @@ def glyph(pixels, vectors_block_size=10, use_negative=False, channels=None):
     return np.ascontiguousarray(glyph_image[None, ...])  # add a channel axis
 
 
+@convert_tensors
 def _create_feature_glyph(feature, vbs):
     r"""
     Create glyph of feature pixels.

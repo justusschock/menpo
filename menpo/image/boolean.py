@@ -2,7 +2,7 @@ from functools import partial
 from warnings import warn
 import numpy as np
 
-from menpo.transform import Translation
+from ..transform import Translation
 from .base import Image, _convert_patches_list_to_single_array
 from .patches import set_patches
 

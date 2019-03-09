@@ -1,8 +1,9 @@
 from __future__ import division
 import numpy as np
 from scipy.ndimage import gaussian_filter
+from menpo.utils import convert_tensors
 
-
+@convert_tensors
 def _daisy(img, step=4, radius=15, rings=3, histograms=8, orientations=8,
            normalization='l1', sigmas=None, ring_radii=None):
     r"""Extract DAISY feature descriptors densely for the given image.

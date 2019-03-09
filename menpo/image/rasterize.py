@@ -4,6 +4,7 @@ import numpy as np
 from menpo.shape import TriMesh
 from menpo.image import Image
 from menpo.compatibility import basestring
+import torch
 
 
 def check_param(n, types, param_name, param):

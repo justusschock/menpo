@@ -1,12 +1,13 @@
-from menpo.transform import Homogeneous
-from menpo.external.skimage._warps_cy import _warp_fast
+from ..transform import Homogeneous
+from ..external.skimage._warps_cy import _warp_fast
 import numpy as np
+import torch
 map_coordinates = None  # expensive, from scipy.ndimage
 
 # Store out a transform that simply switches the x and y axis
-xy_yx = Homogeneous(np.array([[0., 1., 0.],
-                              [1., 0., 0.],
-                              [0., 0., 1.]]))
+xy_yx = Homogeneous(torch.tensor([[0., 1., 0.],
+                                  [1., 0., 0.],
+                                  [0., 0., 1.]]))
 
 
 def scipy_interpolation(pixels, points_to_sample, mode='constant', order=1,
@@ -89,11 +90,17 @@ def cython_interpolation(pixels, template_shape, h_transform, mode='constant',
     sampled_image : `ndarray`
         The pixel information sampled at each of the points.
     """
+    device = torch.device("cpu")
     if isinstance(pixels, torch.Tensor):
+        device = pixels.device
         pixels = pixels.cpu().detach().numpy()
 
     # unfortunately they consider xy -> yx
     matrix = xy_yx.compose_before(h_transform).compose_before(xy_yx).h_matrix
+
+    if isinstance(matrix, torch.Tensor):
+        matrix = matrix.cpu().detach().numpy()
+
     warped_channels = []
     # Unfortunately, Cython does not seem to support the boolean numpy type,
     # so I think we need to do the cast here. If we don't we lose support
@@ -116,4 +123,5 @@ def cython_interpolation(pixels, template_shape, h_transform, mode='constant',
     # As above, we need to convert the uint8 back to bool
     if pixels.dtype == np.bool:
         result = result.astype(np.bool)
-    return torch.from_numpy(result)
+        
+    return torch.from_numpy(result).to(device)

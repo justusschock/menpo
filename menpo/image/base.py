@@ -5,21 +5,33 @@ from collections import Iterable
 import numpy as np
 import PIL.Image as PILImage
 
-from menpo.compatibility import basestring
-from menpo.base import (Vectorizable, MenpoDeprecationWarning,
+from ..compatibility import basestring
+from ..base import (Vectorizable, MenpoDeprecationWarning,
                         copy_landmarks_and_path)
-from menpo.shape import PointCloud, bounding_box
-from menpo.landmark import Landmarkable
-from menpo.transform import (Translation, NonUniformScale, Rotation,
+from ..shape import PointCloud, bounding_box
+from ..landmark import Landmarkable
+from ..transform import (Translation, NonUniformScale, Rotation,
                              AlignmentUniformScale, Affine, scale_about_centre,
                              transform_about_centre)
-from menpo.visualize.base import ImageViewer, LandmarkableViewable, Viewable
+from ..visualize.base import ImageViewer, LandmarkableViewable, Viewable
 
 from .interpolation import scipy_interpolation, cython_interpolation
 from .patches import extract_patches, set_patches
 
 import torch
 
+from ..utils import convert_tensors
+
+
+@convert_tensors
+def extract_patches_torch(*args, **kwargs):
+    return extract_patches(*args, **kwargs)
+
+@convert_tensors
+def set_patches_torch(*args, **kwargs):
+    return set_patches(*args, **kwargs)
+
+    
 
 # Cache the greyscale luminosity coefficients as they are invariant.
 _greyscale_luminosity_coef = None
@@ -1448,7 +1460,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
 
         patch_centers = patch_centers.points.clone().to(
             torch.int).contiguous()
-        single_array = extract_patches(self.pixels, patch_centers,
+        single_array = extract_patches_torch(self.pixels, patch_centers,
                                        torch.tensor(patch_shape, dtype=torch.int),
                                        sample_offsets)
 
@@ -1550,9 +1562,9 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             raise ValueError('Only two dimensional patch insertion is '
                              'currently supported.')
         if offset is None:
-            offset = torch.zeros([1, 2], dtype=torch.intp)
+            offset = torch.zeros([1, 2], dtype=torch.int)
         elif isinstance(offset, tuple) or isinstance(offset, list):
-            offset = torch.asarray([offset])
+            offset = torch.tensor([offset])
         offset = offset.contiguous().to(torch.int)
         if not offset.shape == (1, 2):
             raise ValueError('The offset must be a tuple, a list or a '
