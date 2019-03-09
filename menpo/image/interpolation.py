@@ -1,7 +1,7 @@
+from menpo.transform import Homogeneous
+from menpo.external.skimage._warps_cy import _warp_fast
 import numpy as np
 map_coordinates = None  # expensive, from scipy.ndimage
-from menpo.external.skimage._warps_cy import _warp_fast
-from menpo.transform import Homogeneous
 
 # Store out a transform that simply switches the x and y axis
 xy_yx = Homogeneous(np.array([[0., 1., 0.],
@@ -36,6 +36,12 @@ def scipy_interpolation(pixels, points_to_sample, mode='constant', order=1,
     sampled_image : `ndarray`
         The pixel information sampled at each of the points.
     """
+    if isinstance(pixels, torch.Tensor):
+        pixels = pixels.cpu().detach().numpy()
+
+    if isinstance(points_to_sample, torch.Tensor):
+        points_to_sample = points_to_sample.cpu().detach().numpy()
+
     global map_coordinates
     if map_coordinates is None:
         from scipy.ndimage import map_coordinates  # expensive
@@ -51,7 +57,7 @@ def scipy_interpolation(pixels, points_to_sample, mode='constant', order=1,
                                                     order=order,
                                                     cval=cval))
     sampled_pixel_values = [v.reshape([1, -1]) for v in sampled_pixel_values]
-    return np.concatenate(sampled_pixel_values, axis=0)
+    return torch.from_numpy(np.concatenate(sampled_pixel_values, axis=0))
 
 
 def cython_interpolation(pixels, template_shape, h_transform, mode='constant',
@@ -83,6 +89,9 @@ def cython_interpolation(pixels, template_shape, h_transform, mode='constant',
     sampled_image : `ndarray`
         The pixel information sampled at each of the points.
     """
+    if isinstance(pixels, torch.Tensor):
+        pixels = pixels.cpu().detach().numpy()
+
     # unfortunately they consider xy -> yx
     matrix = xy_yx.compose_before(h_transform).compose_before(xy_yx).h_matrix
     warped_channels = []
@@ -107,4 +116,4 @@ def cython_interpolation(pixels, template_shape, h_transform, mode='constant',
     # As above, we need to convert the uint8 back to bool
     if pixels.dtype == np.bool:
         result = result.astype(np.bool)
-    return result
+    return torch.from_numpy(result)

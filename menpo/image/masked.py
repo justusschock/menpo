@@ -1,16 +1,14 @@
+from .boolean import BooleanImage
+from .base import Image
+from menpo.visualize.base import ImageViewer
+from menpo.transform import Translation
+from menpo.base import MenpoDeprecationWarning, copy_landmarks_and_path
 from __future__ import division
 from warnings import warn
 import numpy as np
 
 binary_erosion = None  # expensive, from scipy.ndimage
 binary_dilation = None  # expensive, from scipy.ndimage
-
-from menpo.base import MenpoDeprecationWarning, copy_landmarks_and_path
-from menpo.transform import Translation
-from menpo.visualize.base import ImageViewer
-
-from .base import Image
-from .boolean import BooleanImage
 
 
 class OutOfMaskSampleError(ValueError):
@@ -26,6 +24,7 @@ class OutOfMaskSampleError(ValueError):
     sampled_values : `ndarray`
         The sampled values, no attempt at masking is made.
     """
+
     def __init__(self, sampled_mask, sampled_values):
         super(OutOfMaskSampleError, self).__init__()
         self.sampled_mask = sampled_mask
@@ -58,6 +57,7 @@ class MaskedImage(Image):
     ValueError
         Mask is not the same shape as the image
     """
+
     def __init__(self, image_data, mask=None, copy=True):
         super(MaskedImage, self).__init__(image_data, copy=copy)
         if mask is not None:
@@ -82,7 +82,7 @@ class MaskedImage(Image):
             self.mask = BooleanImage.init_blank(self.shape, fill=True)
 
     @classmethod
-    def init_blank(cls, shape, n_channels=1, fill=0, dtype=np.float, mask=None):
+    def init_blank(cls, shape, n_channels=1, fill=0, dtype=torch.float, mask=None):
         r"""Generate a blank masked image
 
         Parameters
@@ -117,11 +117,11 @@ class MaskedImage(Image):
             A new masked image of the requested size.
         """
         # Ensure that the '+' operator means concatenate tuples
-        shape = tuple(np.ceil(shape).astype(np.int))
+        shape = tuple(torch.ceil(shape).to(torch.int))
         if fill == 0:
-            pixels = np.zeros((n_channels,) + shape, dtype=dtype)
+            pixels = torch.zeros((n_channels,) + shape, dtype=dtype)
         else:
-            pixels = np.ones((n_channels,) + shape, dtype=dtype) * fill
+            pixels = torch.ones((n_channels,) + shape, dtype=dtype) * fill
         return cls(pixels, copy=False, mask=mask)
 
     @classmethod
@@ -243,7 +243,7 @@ class MaskedImage(Image):
         img = Image(self.pixels, copy=copy)
         if fill is not None:
             if not np.isscalar(fill):
-                fill = np.array(fill).reshape(self.n_channels, -1)
+                fill = torch.tensor(fill).view(self.n_channels, -1)
             img.pixels[..., ~self.mask.mask] = fill
         return copy_landmarks_and_path(self, img)
 
@@ -335,9 +335,9 @@ class MaskedImage(Image):
                          'made. Copy can only be avoided if MaskedImage has '
                          'an all_true mask and the pixels provided are '
                          'C-contiguous.')
-                    pixels = pixels.copy()
+                    pixels = pixels.clone()
             else:
-                pixels = pixels.copy()
+                pixels = pixels.clone()
             self.pixels = pixels
         else:
             self.pixels[..., self.mask.mask] = pixels
@@ -350,8 +350,8 @@ class MaskedImage(Image):
     def __str__(self):
         return ('{} {}D MaskedImage with {} channels. '
                 'Attached mask {:.1%} true'.format(
-            self._str_shape(), self.n_dims, self.n_channels,
-            self.mask.proportion_true()))
+                    self._str_shape(), self.n_dims, self.n_channels,
+                    self.mask.proportion_true()))
 
     def _as_vector(self, keep_channels=False):
         r"""
@@ -375,9 +375,9 @@ class MaskedImage(Image):
             Vectorized image
         """
         if keep_channels:
-            return self.masked_pixels().reshape([self.n_channels, -1])
+            return self.masked_pixels().view([self.n_channels, -1])
         else:
-            return self.masked_pixels().ravel()
+            return self.masked_pixels().flatten()
 
     def from_vector(self, vector, n_channels=None):
         r"""
@@ -413,11 +413,11 @@ class MaskedImage(Image):
         # Creates zeros of size (n_channels x M x N x ...)
         if self.mask.all_true():
             # we can just reshape the array!
-            image_data = vector.reshape(((n_channels,) + self.shape))
+            image_data = vector.view(((n_channels,) + self.shape))
         else:
-            image_data = np.zeros((n_channels,) + self.shape,
-                                  dtype=vector.dtype)
-            pixels_per_channel = vector.reshape((n_channels, -1))
+            image_data = torch.zeros((n_channels,) + self.shape,
+                                     dtype=vector.dtype)
+            pixels_per_channel = vector.view((n_channels, -1))
             image_data[..., self.mask.mask] = pixels_per_channel
         new_image = MaskedImage(image_data, mask=self.mask)
         return copy_landmarks_and_path(self, new_image)
@@ -442,7 +442,7 @@ class MaskedImage(Image):
         Warning
             If ``copy=False`` cannot be honored.
         """
-        self._set_masked_pixels(vector.reshape((self.n_channels, -1)),
+        self._set_masked_pixels(vector.view((self.n_channels, -1)),
                                 copy=copy)
 
     def _view_2d(self, figure_id=None, new_figure=False, channels=None,
@@ -451,7 +451,7 @@ class MaskedImage(Image):
                  axes_font_size=10, axes_font_style='normal',
                  axes_font_weight='normal', axes_x_limits=None,
                  axes_y_limits=None, axes_x_ticks=None, axes_y_ticks=None,
-                 figure_size=(7, 7)):
+                 figure_size=(10, 8)):
         r"""
         View the image using the default image viewer. This method will appear
         on the Image as ``view`` if the Image is 2D.
@@ -525,9 +525,9 @@ class MaskedImage(Image):
         ValueError
             If Image is not 2D
         """
-        mask = self.mask.mask if masked else None
+        mask = self.mask.mask.cpu().detach().numpy() if masked else None
         return ImageViewer(figure_id, new_figure, self.n_dims,
-                           self.pixels, channels=channels,
+                           self.pixels.cpu().detach().numpy(), channels=channels,
                            mask=mask).render(
             interpolation=interpolation, cmap_name=cmap_name, alpha=alpha,
             render_axes=render_axes, axes_font_name=axes_font_name,
@@ -565,7 +565,7 @@ class MaskedImage(Image):
                            axes_font_style='normal', axes_font_weight='normal',
                            axes_x_limits=None, axes_y_limits=None,
                            axes_x_ticks=None, axes_y_ticks=None,
-                           figure_size=(7, 7)):
+                           figure_size=(10, 8)):
         """
         Visualize the landmarks. This method will appear on the Image as
         ``view_landmarks`` if the Image is 2D.
@@ -877,7 +877,7 @@ class MaskedImage(Image):
         sampled_mask = self.mask.sample(points_to_sample, mode=mode, cval=cval)
         sampled_values = Image.sample(self, points_to_sample, order=order,
                                       mode=mode, cval=cval)
-        if not np.all(sampled_mask):
+        if not (sampled_mask).all():
             raise OutOfMaskSampleError(sampled_mask, sampled_values)
         return sampled_values
 
@@ -1058,7 +1058,7 @@ class MaskedImage(Image):
              'Use .normalize_std() instead (features package).',
              MenpoDeprecationWarning)
 
-        return self._normalize(np.std, mode=mode,
+        return self._normalize(torch.std, mode=mode,
                                limit_to_mask=limit_to_mask)
 
     def normalize_norm(self, mode='all', limit_to_mask=True, **kwargs):
@@ -1089,7 +1089,7 @@ class MaskedImage(Image):
              MenpoDeprecationWarning)
 
         def scale_func(pixels, axis=None):
-            return np.linalg.norm(pixels, axis=axis, **kwargs)
+            return torch.norm(pixels, dim=axis, **kwargs)
 
         return self._normalize(scale_func, mode=mode,
                                limit_to_mask=limit_to_mask)
@@ -1106,7 +1106,7 @@ class MaskedImage(Image):
         if limit_to_mask:
             return new_img
         else:
-            return new_img.as_masked(copy=False, mask=self.mask.copy())
+            return new_img.as_masked(copy=False, mask=self.mask.clone())
 
     def constrain_mask_to_landmarks(self, group=None, batch_size=None,
                                     point_in_pointcloud='pwa'):
@@ -1157,7 +1157,7 @@ class MaskedImage(Image):
         """
         copy = self.copy()
         copy.mask = copy.mask.constrain_to_pointcloud(
-            copy.landmarks[group], batch_size=batch_size,
+            copy.landmarks[group].lms, batch_size=batch_size,
             point_in_pointcloud=point_in_pointcloud)
         return copy
 
@@ -1197,12 +1197,12 @@ class MaskedImage(Image):
         """
         copy = self.copy()
         # get the selected pointcloud
-        pc = copy.landmarks[group]
+        pc = copy.landmarks[group].lms
         # temporarily set all mask values to False
         copy.mask.pixels[:] = False
         # create a patches array of the correct size, full of True values
-        patches = np.ones((pc.n_points, 1, 1, int(patch_shape[0]),
-                           int(patch_shape[1])), dtype=np.bool)
+        patches = torch.ones((pc.n_points, 1, 1, int(patch_shape[0]),
+                              int(patch_shape[1])), dtype=torch.long)
         # set True patches around pointcloud centers
         copy.mask = copy.mask.set_patches(patches, pc)
         return copy
@@ -1231,11 +1231,15 @@ class MaskedImage(Image):
         if binary_erosion is None:
             from scipy.ndimage import binary_erosion  # expensive
         # Erode the edge of the mask in by one pixel
-        eroded_mask = binary_erosion(copy.mask.mask, iterations=n_pixels)
+        eroded_mask = torch.tensor(binary_erosion(
+            copy.mask.mask.detach().cpu().numpy(),
+            iterations=n_pixels)).to(
+            copy.mask.mask.device,
+            copy.mask.mask.dtype)
 
         # replace the eroded mask with the diff between the two
         # masks. This is only true in the region we want to nullify.
-        np.logical_and(~eroded_mask, copy.mask.mask, out=eroded_mask)
+        eroded_mask = copy.mask.mask and (not eroded_mask)
         # set all the boundary pixels to a particular value
         copy.pixels[..., eroded_mask] = value
         return copy
@@ -1261,7 +1265,10 @@ class MaskedImage(Image):
         if binary_erosion is None:
             from scipy.ndimage import binary_erosion  # expensive
         # Erode the edge of the mask in by one pixel
-        eroded_mask = binary_erosion(self.mask.mask, iterations=n_pixels)
+        eroded_mask = torch.tensor(binary_erosion(
+            self.mask.mask.detach().cpu().numpy(), iterations=n_pixels)).to(
+            copy.mask.mask.device,
+            copy.mask.mask.dtype)
 
         image = self.copy()
         image.mask = BooleanImage(eroded_mask)
@@ -1288,7 +1295,11 @@ class MaskedImage(Image):
         if binary_dilation is None:
             from scipy.ndimage import binary_dilation  # expensive
         # Erode the edge of the mask in by one pixel
-        dilated_mask = binary_dilation(self.mask.mask, iterations=n_pixels)
+        dilated_mask = torch.tensor(binary_dilation(
+            self.mask.mask.cpu().detach().numpy(),
+            iterations=n_pixels)).to(
+            copy.mask.mask.device,
+            copy.mask.mask.dtype)
 
         image = self.copy()
         image.mask = BooleanImage(dilated_mask)

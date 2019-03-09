@@ -832,9 +832,9 @@ class PCAVectorModel(MeanLinearVectorModel):
         """
         try:
             from menpowidgets import plot_graph
-        except ImportError as e:
+        except:
             from menpo.visualize.base import MenpowidgetsMissingError
-            raise MenpowidgetsMissingError(e)
+            raise MenpowidgetsMissingError()
         plot_graph(x_axis=range(self.n_active_components),
                    y_axis=[self.eigenvalues], legend_entries=['Eigenvalues'],
                    figure_size=figure_size, style=style)
@@ -981,9 +981,9 @@ class PCAVectorModel(MeanLinearVectorModel):
         """
         try:
             from menpowidgets import plot_graph
-        except ImportError as e:
+        except:
             from menpo.visualize.base import MenpowidgetsMissingError
-            raise MenpowidgetsMissingError(e)
+            raise MenpowidgetsMissingError()
         plot_graph(x_axis=range(self.n_active_components),
                    y_axis=[self.eigenvalues_ratio()],
                    legend_entries=['Eigenvalues ratio'],
@@ -1137,9 +1137,9 @@ class PCAVectorModel(MeanLinearVectorModel):
         """
         try:
             from menpowidgets import plot_graph
-        except ImportError as e:
+        except:
             from menpo.visualize.base import MenpowidgetsMissingError
-            raise MenpowidgetsMissingError(e)
+            raise MenpowidgetsMissingError()
         plot_graph(x_axis=range(self.n_active_components),
                    y_axis=[self.eigenvalues_cumulative_ratio()],
                    legend_entries=['Eigenvalues cumulative ratio'],
@@ -1430,23 +1430,6 @@ class PCAModel(VectorizableBackedModel, PCAVectorModel):
         PCAVectorModel.increment(self, data, n_samples=n_new_samples,
                                  forgetting_factor=forgetting_factor,
                                  verbose=verbose)
-
-    def view_widget(self, figure_size=(7, 7)):
-        r"""
-        Visualizes the model using an interactive widget. It only works if it
-        is a 2D/3D shape or appearance model.
-        
-        Parameters
-        ----------
-        figure_size : (`int`, `int`), optional
-            The initial size of the rendered figure.
-        """
-        try:
-            from menpowidgets import view_widget
-            view_widget(self, figure_size=figure_size)
-        except ImportError as e:
-            from menpo.visualize.base import MenpowidgetsMissingError
-            raise MenpowidgetsMissingError(e)
 
     def __str__(self):
         str_out = 'PCA Model \n'                             \

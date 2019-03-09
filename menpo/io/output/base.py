@@ -13,24 +13,21 @@ from ..utils import (_norm_path, _possible_extensions_from_filepath,
 gzip_open = partial(gzip.open, compresslevel=3)
 
 
-def export_landmark_file(landmarks_object, fp, extension=None, overwrite=False):
+def export_landmark_file(landmark_group, fp, extension=None, overwrite=False):
     r"""
-    Exports a given shape. The ``fp`` argument can be either or a `str` or
-    any Python type that acts like a file. If a file is provided, the
-    ``extension`` kwarg **must** be provided. If no ``extension`` is provided
-    and a `str` filepath is provided, then the export type is calculated
-    based on the filepath extension.
+    Exports a given landmark group. The ``fp`` argument can be either
+    or a `str` or any Python type that acts like a file. If a file is provided,
+    the ``extension`` kwarg **must** be provided. If no
+    ``extension`` is provided and a `str` filepath is provided, then
+    the export type is calculated based on the filepath extension.
 
     Due to the mix in string and file types, an explicit overwrite argument is
     used which is ``False`` by default.
 
     Parameters
     ----------
-    landmarks_object : dict or :map:`LandmarkManager`  or
-        :map:`PointCloud` or subclass of :map:`PointCloud`
-        The landmarks to export. The type of :map:`PointCloud` or
-        subclass of it are supported by all exporters, while the
-        rest are available only for the LJSON format.
+    landmark_group : :map:`LandmarkGroup`
+        The landmark group to export.
     fp : `Path` or `file`-like object
         The Path or file-like object to save the object at/into.
     extension : `str` or None, optional
@@ -52,24 +49,8 @@ def export_landmark_file(landmarks_object, fp, extension=None, overwrite=False):
     ValueError
         The provided extension does not match to an existing exporter type
         (the output type is not supported).
-    ValueError
-        The provided type for landmarks_object is not supported.
     """
-    extension = _normalize_extension(extension)
-
-    try:
-        landmarks_object.n_points
-    except AttributeError:
-        # unless this is LJSON, this is not correct.
-        fp_is_path = isinstance(fp, basestring) or isinstance(fp, Path)
-        if (extension is not None and extension != '.ljson') or \
-                (fp_is_path and Path(fp).suffix != '.ljson'):
-            m1 = ('Only the LJSON format supports multiple '
-                  'keys for exporting. \nIn any other '
-                  'case your input should be a PointCloud or '
-                  'subclass.')
-            raise ValueError(m1)
-    _export(landmarks_object, fp, landmark_types, extension, overwrite)
+    _export(landmark_group, fp, landmark_types, extension, overwrite)
 
 
 def export_image(image, fp, extension=None, overwrite=False):

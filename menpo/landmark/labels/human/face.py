@@ -26,7 +26,7 @@ def face_ibug_68_to_face_ibug_68(pcloud):
     .. [1] http://www.multipie.org/
     .. [2] http://ibug.doc.ic.ac.uk/resources/300-W/
     """
-    from menpo.shape import LabelledPointUndirectedGraph
+    from menpo.shape import PointUndirectedGraph
 
     n_expected_points = 68
     validate_input(pcloud, n_expected_points)
@@ -59,6 +59,9 @@ def face_ibug_68_to_face_ibug_68(pcloud):
         mouth_connectivity
     ])
 
+    new_pcloud = PointUndirectedGraph.init_from_edges(
+        pcloud.points, all_connectivity)
+
     mapping = OrderedDict()
     mapping['jaw'] = jaw_indices
     mapping['left_eyebrow'] = lbrow_indices
@@ -67,9 +70,6 @@ def face_ibug_68_to_face_ibug_68(pcloud):
     mapping['left_eye'] = leye_indices
     mapping['right_eye'] = reye_indices
     mapping['mouth'] = np.hstack((outer_mouth_indices, inner_mouth_indices))
-
-    new_pcloud = LabelledPointUndirectedGraph.init_from_indices_mapping(
-        pcloud.points, all_connectivity, mapping)
 
     return new_pcloud, mapping
 
@@ -133,7 +133,7 @@ def face_ibug_68_to_face_ibug_66(pcloud):
     .. [1] http://www.multipie.org/
     .. [2] http://ibug.doc.ic.ac.uk/resources/300-W/
     """
-    from menpo.shape import LabelledPointUndirectedGraph
+    from menpo.shape import PointUndirectedGraph
 
     n_expected_points = 68
     validate_input(pcloud, n_expected_points)
@@ -166,6 +166,10 @@ def face_ibug_68_to_face_ibug_66(pcloud):
         nose_connectivity, leye_connectivity, reye_connectivity,
         mouth_connectivity])
 
+    # Ignore the two inner mouth points
+    ind = np.hstack((np.arange(60), np.arange(61, 64), np.arange(65, 68)))
+    new_pcloud = PointUndirectedGraph.init_from_edges(pcloud.points[ind],
+                                                      all_connectivity)
     mapping = OrderedDict()
     mapping['jaw'] = jaw_indices
     mapping['left_eyebrow'] = lbrow_indices
@@ -174,11 +178,6 @@ def face_ibug_68_to_face_ibug_66(pcloud):
     mapping['left_eye'] = leye_indices
     mapping['right_eye'] = reye_indices
     mapping['mouth'] = np.hstack([outer_mouth_indices, inner_mouth_indices])
-
-    # Ignore the two inner mouth points
-    ind = np.hstack((np.arange(60), np.arange(61, 64), np.arange(65, 68)))
-    new_pcloud = LabelledPointUndirectedGraph.init_from_indices_mapping(
-        pcloud.points[ind], all_connectivity, mapping)
 
     return new_pcloud, mapping
 
@@ -203,7 +202,7 @@ def face_ibug_68_to_face_ibug_51(pcloud):
     .. [1] http://www.multipie.org/
     .. [2] http://ibug.doc.ic.ac.uk/resources/300-W/
     """
-    from menpo.shape import LabelledPointUndirectedGraph
+    from menpo.shape import PointUndirectedGraph
 
     n_expected_points = 68
     validate_input(pcloud, n_expected_points)
@@ -232,6 +231,11 @@ def face_ibug_68_to_face_ibug_51(pcloud):
         lbrow_connectivity, rbrow_connectivity, nose_connectivity,
         leye_connectivity, reye_connectivity, mouth_connectivity])
 
+    # Ignore the two inner mouth points
+    ind = np.arange(17, 68)
+    new_pcloud = PointUndirectedGraph.init_from_edges(pcloud.points[ind],
+                                                      all_connectivity)
+
     mapping = OrderedDict()
     mapping['left_eyebrow'] = lbrow_indices
     mapping['right_eyebrow'] = rbrow_indices
@@ -239,11 +243,6 @@ def face_ibug_68_to_face_ibug_51(pcloud):
     mapping['left_eye'] = leye_indices
     mapping['right_eye'] = reye_indices
     mapping['mouth'] = np.hstack([outer_mouth_indices, inner_mouth_indices])
-
-    # Ignore the two inner mouth points
-    ind = np.arange(17, 68)
-    new_pcloud = LabelledPointUndirectedGraph.init_from_indices_mapping(
-        pcloud.points[ind], all_connectivity, mapping)
 
     return new_pcloud, mapping
 
@@ -267,7 +266,7 @@ def face_ibug_49_to_face_ibug_49(pcloud):
     .. [1] http://www.multipie.org/
     .. [2] http://ibug.doc.ic.ac.uk/resources/300-W/
     """
-    from menpo.shape import LabelledPointUndirectedGraph
+    from menpo.shape import PointUndirectedGraph
 
     n_expected_points = 49
     validate_input(pcloud, n_expected_points)
@@ -297,6 +296,10 @@ def face_ibug_49_to_face_ibug_49(pcloud):
         lbrow_connectivity, rbrow_connectivity, nose_connectivity,
         leye_connectivity, reye_connectivity, mouth_connectivity])
 
+    # Ignore the two inner mouth points
+    new_pcloud = PointUndirectedGraph.init_from_edges(pcloud.points,
+                                                      all_connectivity)
+
     mapping = OrderedDict()
     mapping['left_eyebrow'] = lbrow_indices
     mapping['right_eyebrow'] = rbrow_indices
@@ -304,10 +307,6 @@ def face_ibug_49_to_face_ibug_49(pcloud):
     mapping['left_eye'] = leye_indices
     mapping['right_eye'] = reye_indices
     mapping['mouth'] = np.hstack([outer_mouth_indices, inner_mouth_indices])
-
-    # Ignore the two inner mouth points
-    new_pcloud = LabelledPointUndirectedGraph.init_from_indices_mapping(
-        pcloud.points, all_connectivity, mapping)
 
     return new_pcloud, mapping
 
@@ -333,7 +332,7 @@ def face_ibug_68_to_face_ibug_49(pcloud):
     .. [1] http://www.multipie.org/
     .. [2] http://ibug.doc.ic.ac.uk/resources/300-W/
     """
-    from menpo.shape import LabelledPointUndirectedGraph
+    from menpo.shape import PointUndirectedGraph
 
     n_expected_points = 68
     validate_input(pcloud, n_expected_points)
@@ -363,6 +362,11 @@ def face_ibug_68_to_face_ibug_49(pcloud):
         lbrow_connectivity, rbrow_connectivity, nose_connectivity,
         leye_connectivity, reye_connectivity, mouth_connectivity])
 
+    # Ignore the two inner mouth points
+    ind = np.hstack((np.arange(17, 60), np.arange(61, 64), np.arange(65, 68)))
+    new_pcloud = PointUndirectedGraph.init_from_edges(pcloud.points[ind],
+                                                      all_connectivity)
+
     mapping = OrderedDict()
     mapping['left_eyebrow'] = lbrow_indices
     mapping['right_eyebrow'] = rbrow_indices
@@ -370,11 +374,6 @@ def face_ibug_68_to_face_ibug_49(pcloud):
     mapping['left_eye'] = leye_indices
     mapping['right_eye'] = reye_indices
     mapping['mouth'] = np.hstack([outer_mouth_indices, inner_mouth_indices])
-
-    # Ignore the two inner mouth points
-    ind = np.hstack((np.arange(17, 60), np.arange(61, 64), np.arange(65, 68)))
-    new_pcloud = LabelledPointUndirectedGraph.init_from_indices_mapping(
-        pcloud.points[ind], all_connectivity, mapping)
 
     return new_pcloud, mapping
 
@@ -434,7 +433,7 @@ def face_ibug_68_to_face_ibug_68_trimesh(pcloud):
                          [46, 47, 44], [25, 44, 24], [25, 26, 44],
                          [16, 15, 45], [16, 45, 26], [22, 42, 43],
                          [50, 51, 61], [27, 22, 42]])
-    new_pcloud = TriMesh(pcloud.points, trilist=tri_list)
+    new_pcloud = TriMesh(pcloud.points, tri_list)
 
     mapping = OrderedDict()
     mapping['tri'] = np.arange(new_pcloud.n_points)
@@ -645,7 +644,7 @@ def face_ibug_68_to_face_ibug_65(pcloud):
     .. [1] http://www.multipie.org/
     .. [2] http://ibug.doc.ic.ac.uk/resources/300-W/
     """
-    from menpo.shape import LabelledPointUndirectedGraph
+    from menpo.shape import PointUndirectedGraph
 
     # Apply face_ibug_68_to_face_ibug_68
     new_pcloud, mapping = face_ibug_68_to_face_ibug_68(pcloud,
@@ -659,13 +658,13 @@ def face_ibug_68_to_face_ibug_65(pcloud):
     edges = np.vstack([edges,
                        connectivity_from_range((60, 65), close_loop=True)])
 
+    new_pcloud = PointUndirectedGraph.init_from_edges(
+        new_pcloud.points[:-3], edges)
+
     # Luckily, OrderedDict maintains the original ordering despite updates
     outer_mouth_indices = np.arange(48, 60)
     inner_mouth_indices = np.arange(60, 65)
     mapping['mouth'] = np.hstack([outer_mouth_indices, inner_mouth_indices])
-
-    new_pcloud = LabelledPointUndirectedGraph.init_from_indices_mapping(
-        new_pcloud.points[:-3], edges, mapping)
 
     return new_pcloud, mapping
 
@@ -723,7 +722,7 @@ def face_lfpw_29_to_face_lfpw_29(pcloud):
     ----------
     .. [1] http://homes.cs.washington.edu/~neeraj/databases/lfpw/
     """
-    from menpo.shape import LabelledPointUndirectedGraph
+    from menpo.shape import PointUndirectedGraph
 
     n_expected_points = 29
     validate_input(pcloud, n_expected_points)
@@ -758,6 +757,9 @@ def face_lfpw_29_to_face_lfpw_29(pcloud):
         lbrow_connectivity, rbrow_connectivity, mouth_connectivity,
         nose_connectivity])
 
+    new_pcloud = PointUndirectedGraph.init_from_edges(pcloud.points,
+                                                      all_connectivity)
+
     mapping = OrderedDict()
     mapping['chin'] = chin_indices
     mapping['left_eye'] = np.hstack((outer_leye_indices, pupil_leye_indices))
@@ -766,9 +768,6 @@ def face_lfpw_29_to_face_lfpw_29(pcloud):
     mapping['right_eyebrow'] = rbrow_indices
     mapping['mouth'] = np.hstack((outer_mouth_indices, inner_mouth_indices))
     mapping['nose'] = nose_indices
-
-    new_pcloud = LabelledPointUndirectedGraph.init_from_indices_mapping(
-        pcloud.points, all_connectivity, mapping)
 
     return new_pcloud, mapping
 
@@ -799,7 +798,7 @@ def eye_ibug_open_38_to_eye_ibug_open_38(pcloud):
       - pupil
       - sclera
     """
-    from menpo.shape import LabelledPointUndirectedGraph
+    from menpo.shape import PointUndirectedGraph
 
     n_expected_points = 38
     validate_input(pcloud, n_expected_points)
@@ -833,6 +832,8 @@ def eye_ibug_open_38_to_eye_ibug_open_38(pcloud):
                                   iris_connectivity.tolist() +
                                   pupil_connectivity.tolist() +
                                   sclera_connectivity)
+    new_pcloud = PointUndirectedGraph.init_from_edges(pcloud.points,
+                                                      all_connectivity)
 
     mapping = OrderedDict()
     mapping['upper_eyelid'] = upper_el_indices
@@ -840,9 +841,6 @@ def eye_ibug_open_38_to_eye_ibug_open_38(pcloud):
     mapping['pupil'] = np.arange(*pupil_range)
     mapping['iris'] = np.arange(*iris_range)
     mapping['sclera'] = sclera_indices
-
-    new_pcloud = LabelledPointUndirectedGraph.init_from_indices_mapping(
-        pcloud.points, all_connectivity, mapping)
 
     return new_pcloud, mapping
 
@@ -857,7 +855,7 @@ def eye_ibug_close_17_to_eye_ibug_close_17(pcloud):
       - upper_eyelid
       - lower_eyelid
     """
-    from menpo.shape import LabelledPointUndirectedGraph
+    from menpo.shape import PointUndirectedGraph
 
     n_expected_points = 17
     validate_input(pcloud, n_expected_points)
@@ -873,13 +871,12 @@ def eye_ibug_close_17_to_eye_ibug_close_17(pcloud):
     lower_connectivity += [(11, 0)]
 
     all_connectivity = np.asarray(upper_connectivity + lower_connectivity)
+    new_pcloud = PointUndirectedGraph.init_from_edges(pcloud.points,
+                                                      all_connectivity)
 
     mapping = OrderedDict()
     mapping['upper_eyelid'] = upper_indices
     mapping['lower_eyelid'] = lower_indices
-
-    new_pcloud = LabelledPointUndirectedGraph.init_from_indices_mapping(
-        pcloud.points, all_connectivity, mapping)
 
     return new_pcloud, mapping
 
@@ -920,7 +917,7 @@ def eye_ibug_open_38_to_eye_ibug_open_38_trimesh(pcloud):
                          [ 4, 15,  3], [16, 26, 15], [16,  4,  5],
                          [16, 15,  4], [16,  5,  6], [8, 18, 19]])
 
-    new_pcloud = TriMesh(pcloud.points, trilist=tri_list, copy=False)
+    new_pcloud = TriMesh(pcloud.points, tri_list, copy=False)
 
     mapping = OrderedDict()
     mapping['tri'] = np.arange(new_pcloud.n_points)
@@ -951,7 +948,7 @@ def eye_ibug_close_17_to_eye_ibug_close_17_trimesh(pcloud):
                          [15, 14,  4], [ 7, 15, 16], [ 8,  9, 15],
                          [15,  4,  5], [16,  6,  7]])
 
-    new_pcloud = TriMesh(pcloud.points, trilist=tri_list, copy=False)
+    new_pcloud = TriMesh(pcloud.points, tri_list, copy=False)
 
     mapping = OrderedDict()
     mapping['tri'] = np.arange(new_pcloud.n_points)

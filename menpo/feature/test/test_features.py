@@ -1,17 +1,16 @@
 from __future__ import division
-
 import random
 import warnings
 
 import numpy as np
-from numpy.testing import assert_allclose
-from pytest import raises
+from numpy.testing import assert_allclose, raises
+from nose.plugins.attrib import attr
 
-import menpo.io as mio
+from menpo.testing import is_same_array
+from menpo.image import Image, MaskedImage
 from menpo.feature import (hog, lbp, es, igo, daisy, no_op, normalize,
                            normalize_norm, normalize_std, normalize_var)
-from menpo.image import Image, MaskedImage
-from menpo.testing import is_same_array
+import menpo.io as mio
 
 
 def test_imagewindowiterator_hog_padding():
@@ -153,6 +152,7 @@ def test_hog_channels_zhuramanan():
         assert_allclose(hog_img.n_channels, n_channels)
 
 
+@attr('cyvlfeat')
 def test_dsift_channels():
     from menpo.feature import dsift
     n_cases = 3
@@ -263,6 +263,7 @@ def test_daisy_values():
     assert_allclose(np.around(daisy_img.pixels[40, 1, 1], 6), 0.000163)
 
 
+@attr('cyvlfeat')
 def test_dsift_values():
     from menpo.feature import dsift
     # Equivalent to the transpose of image in Matlab
@@ -301,14 +302,14 @@ def test_constrain_landmarks():
     breaking_bad = breaking_bad.resize([50, 50])
     breaking_bad.constrain_mask_to_landmarks()
     hog_b = hog(breaking_bad, mode='sparse')
-    x = np.where(hog_b.landmarks['PTS'].points[:, 0] > hog_b.shape[1] - 1)
-    y = np.where(hog_b.landmarks['PTS'].points[:, 0] > hog_b.shape[0] - 1)
+    x = np.where(hog_b.landmarks['PTS'].lms.points[:, 0] > hog_b.shape[1] - 1)
+    y = np.where(hog_b.landmarks['PTS'].lms.points[:, 0] > hog_b.shape[0] - 1)
     assert_allclose(len(x[0]) + len(y[0]), 12)
     hog_b = hog(breaking_bad, mode='sparse')
-    hog_b.landmarks['PTS'] = hog_b.landmarks['PTS'].constrain_to_bounds(
+    hog_b.landmarks['PTS'] = hog_b.landmarks['PTS'].lms.constrain_to_bounds(
         hog_b.bounds())
-    x = np.where(hog_b.landmarks['PTS'].points[:, 0] > hog_b.shape[1] - 1)
-    y = np.where(hog_b.landmarks['PTS'].points[:, 0] > hog_b.shape[0] - 1)
+    x = np.where(hog_b.landmarks['PTS'].lms.points[:, 0] > hog_b.shape[1] - 1)
+    y = np.where(hog_b.landmarks['PTS'].lms.points[:, 0] > hog_b.shape[0] - 1)
     assert_allclose(len(x[0]) + len(y[0]), 0)
 
 
@@ -410,17 +411,17 @@ def test_normalize_scale_per_channel():
     assert_allclose(new_image.pixels[2], (pixels[2] - 22.) / 2.0)
 
 
+@raises(ValueError)
 def test_normalize_unknown_mode_raises():
     image = Image.init_blank((2, 2))
-    with raises(ValueError):
-        normalize(image, mode='fake')
+    normalize(image, mode='fake')
 
 
+@raises(ValueError)
 def test_normalize_0_variance_raises():
     image = Image.init_blank((2, 2))
     dummy_scale = lambda *a, **kwargs: np.array(0.0)
-    with raises(ValueError):
-        normalize(image, scale_func=dummy_scale)
+    normalize(image, scale_func=dummy_scale)
 
 
 def test_normalize_0_variance_warning():

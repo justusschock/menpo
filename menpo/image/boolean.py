@@ -6,6 +6,8 @@ from menpo.transform import Translation
 from .base import Image, _convert_patches_list_to_single_array
 from .patches import set_patches
 
+import torch
+
 
 def pwa_point_in_pointcloud(pcloud, indices, batch_size=None):
     """
@@ -38,7 +40,7 @@ def pwa_point_in_pointcloud(pcloud, indices, batch_size=None):
     try:
         pwa = PiecewiseAffine(pcloud, pcloud)
         pwa.apply(indices, batch_size=batch_size)
-        return np.ones(indices.shape[0], dtype=np.bool)
+        return torch.ones(indices.shape[0], dtype=torch.long)
     except TriangleContainmentError as e:
         return ~e.points_outside_source_domain
 
@@ -74,10 +76,12 @@ def convex_hull_point_in_pointcloud(pcloud, indices):
     from scipy.spatial import ConvexHull
     from matplotlib.path import Path
 
-    c_hull = ConvexHull(pcloud.points)
+    device = pcloud.device
+
+    c_hull = ConvexHull(pcloud.points.cpu().detach().numpy())
     polygon = pcloud.points[c_hull.vertices, :]
 
-    return Path(polygon).contains_points(indices)
+    return torch.tensor(Path(polygon).contains_points(indices)).to(device)
 
 
 class BooleanImage(Image):
@@ -102,12 +106,11 @@ class BooleanImage(Image):
     def __init__(self, mask_data, copy=True):
         # Add a channel dimension. We do this little reshape trick to add
         # the axis because this maintains C-contiguous'ness
-        mask_data = mask_data.reshape((1,) + mask_data.shape)
+        mask_data = mask_data.view((1,) + mask_data.shape)
         # If we are trying not to copy, but the data we have isn't boolean,
         # then unfortunately, we forced to copy anyway!
-        if mask_data.dtype != np.bool:
-            mask_data = np.array(mask_data, dtype=np.bool, copy=True,
-                                 order='C')
+        if mask_data.dtype != torch.long:
+            mask_data = mask_data.long().contiguous()
             if not copy:
                 warn('The copy flag was NOT honoured. A copy HAS been made. '
                      'Please ensure the data you pass is C-contiguous.')
@@ -137,9 +140,9 @@ class BooleanImage(Image):
         from .base import round_image_shape
         shape = round_image_shape(shape, round)
         if fill:
-            mask = np.ones(shape, dtype=np.bool)
+            mask = torch.ones(shape, dtype=torch.long)
         else:
-            mask = np.zeros(shape, dtype=np.bool)
+            mask = torch.zeros(shape, dtype=torch.long)
         return cls(mask, copy=False)
 
     @classmethod
@@ -236,7 +239,7 @@ class BooleanImage(Image):
 
         :type: `int`
         """
-        return np.sum(self.pixels)
+        return torch.sum(self.pixels)
 
     def n_false(self):
         r"""
@@ -252,7 +255,7 @@ class BooleanImage(Image):
 
         :type: `bool`
         """
-        return np.all(self.pixels)
+        return (self.pixels).all()
 
     def proportion_true(self):
         r"""
@@ -289,7 +292,7 @@ class BooleanImage(Image):
         :type: ``(n_dims, n_false)`` `ndarray`
         """
         # Ignore the channel axis
-        return np.vstack(np.nonzero(~self.pixels[0])).T
+        return torch.cat(torch.nonzero(~self.pixels[0]), dim=1).permute(1, 0)
 
     def __str__(self):
         return ('{} {}D mask, {:.1%} '
@@ -372,8 +375,8 @@ class BooleanImage(Image):
             is clipped to legal image bounds.
         """
         mpi = self.true_indices()
-        maxes = np.max(mpi, axis=0) + boundary
-        mins = np.min(mpi, axis=0) - boundary
+        maxes = torch.max(mpi, dim=0) + boundary
+        mins = torch.min(mpi, dim=0) - boundary
         if constrain_to_bounds:
             maxes = self.constrain_points_to_bounds(maxes)
             mins = self.constrain_points_to_bounds(mins)
@@ -570,11 +573,12 @@ class BooleanImage(Image):
         warped_img = template_mask.copy()
         if warped_img.all_true():
             # great, just reshape the sampled_pixel_values
-            warped_img.pixels = sampled_pixel_values.reshape(
+            warped_img.pixels = sampled_pixel_values.view(
                 (1,) + warped_img.shape)
         else:
             # we have to fill out mask with the sampled mask..
-            warped_img.pixels[:, warped_img.mask] = sampled_pixel_values
+            warped_img.pixels[:,
+                              warped_img.mask] = sampled_pixel_values.clone()
         return warped_img
 
     def constrain_to_landmarks(self, group=None, batch_size=None):
@@ -605,7 +609,7 @@ class BooleanImage(Image):
         constrained : :map:`BooleanImage`
             The new boolean image, constrained by the given landmark group.
         """
-        return self.constrain_to_pointcloud(self.landmarks[group],
+        return self.constrain_to_pointcloud(self.landmarks[group].lms,
                                             batch_size=batch_size)
 
     def constrain_to_pointcloud(self, pointcloud, batch_size=None,
@@ -686,12 +690,12 @@ class BooleanImage(Image):
                              'take two arguments: the Menpo PointCloud as a '
                              'boundary and the ndarray of pixel indices '
                              'to test. {} is an unknown option.'.format(
-                             point_in_pointcloud))
+                                 point_in_pointcloud))
 
         # Only consider indices inside the bounding box of the PointCloud
         bounds = pointcloud.bounds()
         # Convert to integer to try and reduce boundary fp rounding errors.
-        bounds = [b.astype(np.int) for b in bounds]
+        bounds = [b.to(torch, int) for b in bounds]
         indices = copy.indices()
 
         # This loop is to ensure the code is multi-dimensional
@@ -700,15 +704,16 @@ class BooleanImage(Image):
             indices = indices[indices[:, k] <= bounds[1][k], :]
         # Due to only testing bounding box indices, make sure the mask starts
         # off as all False
-        copy.pixels[:] = False
+        copy.pixels[:] = 0
 
         # slice(0, 1) because we know we only have 1 channel
         # Slice all the channels, only inside the bounding box (for setting
         # the new mask values).
         all_channels = [slice(0, 1)]
-        slices = tuple(all_channels + [slice(bounds[0][k], bounds[1][k] + 1)
-                                       for k in range(self.n_dims)])
-        copy.pixels[slices].flat = point_in_pointcloud(pointcloud, indices)
+        slices = all_channels + [slice(bounds[0][k], bounds[1][k] + 1)
+                                 for k in range(self.n_dims)]
+        flat_pixels = copy.pixels[slices].flatten()
+        flat_pixels = point_in_pointcloud(pointcloud, indices)
         return copy
 
     def set_patches(self, patches, patch_centers, offset=None,
@@ -765,10 +770,10 @@ class BooleanImage(Image):
             raise ValueError('Only two dimensional patch insertion is '
                              'currently supported.')
         if offset is None:
-            offset = np.zeros([1, 2], dtype=np.intp)
+            offset = torch.zeros([1, 2], dtype=torch.int)
         elif isinstance(offset, tuple) or isinstance(offset, list):
-            offset = np.asarray([offset])
-        offset = np.require(offset, dtype=np.intp)
+            offset = torch.tensor([offset])
+        offset =offset.to(torch.int)
         if not offset.shape == (1, 2):
             raise ValueError('The offset must be a tuple, a list or a '
                              'numpy.array with shape (1, 2).')
@@ -782,10 +787,10 @@ class BooleanImage(Image):
 
         copy = self.copy()
         # convert pixels to uint8 so that they get recognized by cython
-        tmp_pixels = copy.pixels.astype(np.uint8)
+        tmp_pixels = copy.pixels.to(torch.uint8)
         # convert patches to uint8 as well and set them to pixels
-        set_patches(patches.astype(np.uint8), tmp_pixels, patch_centers.points,
+        set_patches(patches.to(torch.uint8), tmp_pixels, patch_centers.points,
                     offset, offset_index)
         # convert pixels back to bool
-        copy.pixels = tmp_pixels.astype(np.bool)
+        copy.pixels = tmp_pixels.to(torch.long)
         return copy

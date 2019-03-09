@@ -1,5 +1,5 @@
 import numpy as np
-from pytest import raises
+from nose.tools import raises
 from numpy.testing import (assert_allclose, assert_equal, assert_almost_equal,
                            assert_array_almost_equal)
 from menpo.shape import PointCloud
@@ -73,11 +73,12 @@ def test_pca_n_active_components_too_many():
     assert_equal(model.n_active_components, 9)
 
 
+@raises(ValueError)
 def test_pca_n_active_components_negative():
     samples = [np.random.randn(10) for _ in range(10)]
     model = PCAVectorModel(samples)
-    with raises(ValueError):
-        model.n_active_components = -5
+    # not sufficient components
+    model.n_active_components = -5
 
 
 def test_pca_trim():
@@ -89,36 +90,35 @@ def test_pca_trim():
     assert_equal(model.n_active_components, model.n_components)
 
 
+@raises(ValueError)
 def test_pca_trim_variance_limit():
     samples = [np.random.randn(10) for _ in range(10)]
     model = PCAVectorModel(samples)
-    with raises(ValueError):
-        # impossible to keep more than 1.0 ratio variance
-        model.trim_components(2.5)
+    # impossible to keep more than 1.0 ratio variance
+    model.trim_components(2.5)
 
-
+@raises(ValueError)
 def test_pca_trim_variance_limit():
     samples = [np.random.randn(10) for _ in range(10)]
     model = PCAVectorModel(samples)
-    with raises(ValueError):
-        # impossible to keep more than 1.0 ratio variance
-        model.trim_components(2.5)
+    # impossible to keep more than 1.0 ratio variance
+    model.trim_components(2.5)
 
 
+@raises(ValueError)
 def test_pca_trim_negative_integers():
     samples = [PointCloud(np.random.randn(10)) for _ in range(10)]
     model = PCAModel(samples)
-    with raises(ValueError):
-        # no negative number of components
-        model.trim_components(-2)
+    # no negative number of components
+    model.trim_components(-2)
 
 
+@raises(ValueError)
 def test_pca_trim_negative_float():
     samples = [PointCloud(np.random.randn(10)) for _ in range(10)]
     model = PCAModel(samples)
-    with raises(ValueError):
-        # no negative number of components
-        model.trim_components(-2)
+    # no negative number of components
+    model.trim_components(-2)
 
 
 def test_pca_variance():
@@ -134,12 +134,12 @@ def test_pca_variance():
     assert_equal(model.noise_variance_ratio(), 0.0)
 
 
+@raises(ValueError)
 def test_pca_inverse_noise_variance():
     samples = [PointCloud(np.random.randn(10)) for _ in range(10)]
     model = PCAModel(samples)
-    with raises(ValueError):
-        # inverse noise_variance it's not computable
-        model.inverse_noise_variance()
+    # inverse noise_variance it's not computable
+    model.inverse_noise_variance()
 
 
 def test_pca_variance_after_change_n_active_components():

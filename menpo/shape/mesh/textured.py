@@ -368,9 +368,9 @@ class TexturedTriMesh(TriMesh):
                     normals_marker_size=normals_marker_size, step=step,
                     alpha=alpha)
                 return renderer
-            except ImportError as e:
+            except ImportError:
                 from menpo.visualize import Menpo3dMissingError
-                raise Menpo3dMissingError(e)
+                raise Menpo3dMissingError()
         else:
             try:
                 from menpo3d.visualize import TriMeshViewer3d
@@ -385,9 +385,9 @@ class TexturedTriMesh(TriMesh):
                     normals_marker_size=normals_marker_size, step=step,
                     alpha=alpha)
                 return renderer
-            except ImportError as e:
+            except ImportError:
                 from menpo.visualize import Menpo3dMissingError
-                raise Menpo3dMissingError(e)
+                raise Menpo3dMissingError()
 
     def _view_2d(self, figure_id=None, new_figure=False, image_view=True,
                  render_lines=True, line_colour='r', line_style='-',
@@ -402,8 +402,8 @@ class TexturedTriMesh(TriMesh):
                  axes_font_name='sans-serif', axes_font_size=10,
                  axes_font_style='normal', axes_font_weight='normal',
                  axes_x_limits=None, axes_y_limits=None, axes_x_ticks=None,
-                 axes_y_ticks=None, figure_size=(7, 7),
-                 label=None, **kwargs):
+                 axes_y_ticks=None, figure_size=(10, 8),
+                 label=None):
         r"""
         Visualization of the TriMesh in 2D. Currently, explicit textured TriMesh
         viewing is not supported, and therefore viewing falls back to untextured

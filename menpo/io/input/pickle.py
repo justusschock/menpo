@@ -32,7 +32,7 @@ def pickle_importer(filepath, asset=None, **kwargs):
     object : `object`
         The pickled objects.
     """
-    with filepath.open('rb') as f:
+    with open(str(filepath), 'rb') as f:
         x = _unpickle_with_encoding(f, encoding=kwargs.get('encoding'))
     return x
 

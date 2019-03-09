@@ -18,6 +18,8 @@ from menpo.visualize.base import ImageViewer, LandmarkableViewable, Viewable
 from .interpolation import scipy_interpolation, cython_interpolation
 from .patches import extract_patches, set_patches
 
+import torch
+
 
 # Cache the greyscale luminosity coefficients as they are invariant.
 _greyscale_luminosity_coef = None
@@ -62,10 +64,10 @@ def indices_for_image_of_shape(shape):
 
     Returns
     -------
-    indices : `ndarray`
+    indices : `torch.Tensor`
         The indices of all the pixels in the image.
     """
-    return np.indices(shape).reshape([len(shape), -1]).T
+    return torch.tensor(np.indices(shape).reshape([len(shape), -1]).T)
 
 
 def normalize_pixels_range(pixels, error_on_unknown_type=True):
@@ -94,20 +96,18 @@ def normalize_pixels_range(pixels, error_on_unknown_type=True):
         If ``pixels`` is an unknown type and ``error_on_unknown_type==True``
     """
     dtype = pixels.dtype
-    if dtype == np.uint8:
+    if dtype == torch.uint8:
         max_range = 255.0
-    elif dtype == np.uint16:
-        max_range = 65535.0
     else:
         if error_on_unknown_type:
             raise ValueError('Unexpected dtype ({}) - normalisation range '
                              'is unknown'.format(dtype))
         else:
             # Do nothing
-            return pixels
+            return pixels.float()
     # This multiplication is quite a bit faster than just dividing - will
     # automatically cast it up to float64
-    return pixels * (1.0 / max_range)
+    return pixels.float() * (1.0 / max_range)
 
 
 def denormalize_pixels_range(pixels, out_dtype):
@@ -123,7 +123,7 @@ def denormalize_pixels_range(pixels, out_dtype):
     ----------
     pixels : `ndarray`
         The pixels to denormalize.
-    out_dtype : `np.dtype`
+    out_dtype : `torch.dtype`
         The numpy data type to output and scale the values into.
 
     Returns
@@ -144,9 +144,9 @@ def denormalize_pixels_range(pixels, out_dtype):
     if in_dtype == out_dtype:
         return pixels
 
-    if np.issubclass_(in_dtype.type, np.floating) or in_dtype == np.float:
-        if np.issubclass_(out_dtype, np.floating) or out_dtype == np.float:
-            return pixels.astype(out_dtype)
+    if in_dtype == torch.float:
+        if out_dtype == torch.float:
+            return pixels.to(out_dtype)
         else:
             p_min = pixels.min()
             p_max = pixels.max()
@@ -154,19 +154,17 @@ def denormalize_pixels_range(pixels, out_dtype):
                 raise ValueError('Unexpected input range [{}, {}] - pixels '
                                  'must be in the range [0, 1]'.format(p_min,
                                                                       p_max))
-    elif in_dtype != np.bool:
+    elif in_dtype != torch.long:
         raise ValueError('Unexpected input dtype ({}) - only float32, float64 '
                          'and bool supported'.format(in_dtype))
 
-    if out_dtype == np.uint8:
+    if out_dtype == torch.uint8:
         max_range = 255.0
-    elif out_dtype == np.uint16:
-        max_range = 65535.0
     else:
         raise ValueError('Unexpected output dtype ({}) - normalisation range '
                          'is unknown'.format(out_dtype))
 
-    return (pixels * max_range).astype(out_dtype)
+    return (pixels.float() * max_range).to(out_dtype)
 
 
 def channels_to_back(pixels):
@@ -187,8 +185,7 @@ def channels_to_back(pixels):
     rolled_pixels : `ndarray`
         The numpy array of pixels with the channels on the last axis.
     """
-    return np.require(np.rollaxis(pixels, 0, pixels.ndim), dtype=pixels.dtype,
-                      requirements=['C'])
+    return pixels.permute(*range(1, len(pixels.shape)), 0).contiguous()
 
 
 def channels_to_front(pixels):
@@ -206,10 +203,10 @@ def channels_to_front(pixels):
     pixels : ``(C, H, W)`` `ndarray`
         Numpy array, channels as axis 0.
     """
-    if not isinstance(pixels, np.ndarray):
-        pixels = np.array(pixels)
-    return np.require(np.rollaxis(pixels, -1), dtype=pixels.dtype,
-                      requirements=['C'])
+    if not isinstance(pixels, torch.Tensor):
+        pixels = torch.tensor(pixels)
+
+    return pixels.permute(-1, *range(len(pixels.shape) - 1)).contiguous()
 
 
 class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
@@ -245,30 +242,34 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
 
     def __init__(self, image_data, copy=True):
         super(Image, self).__init__()
+
+        if isinstance(image_data, np.ndarray):
+            image_data = torch.from_numpy(image_data)
+
         if not copy:
-            if not image_data.flags.c_contiguous:
-                image_data = np.array(image_data, copy=True, order='C')
+            if not image_data.is_contiguous():
+                image_data = image_data.contiguous()
                 warn('The copy flag was NOT honoured. A copy HAS been made. '
-                     'Please ensure the data you pass is C-contiguous.')
+                     'Please ensure the data you pass is contiguous.')
         else:
-            image_data = np.array(image_data, copy=True, order='C')
+            image_data = torch.tensor(image_data).clone()
 
         # Degenerate case whereby we can just put the extra axis
         # on ourselves
-        if image_data.ndim == 2:
+        if image_data.ndimension() == 2:
             # Ensures that the data STAYS C-contiguous
-            image_data = image_data.reshape((1,) + image_data.shape)
+            image_data = image_data.view((1,) + image_data.shape)
 
-        if image_data.ndim < 2:
+        if image_data.ndimemsion() < 2:
             raise ValueError(
                 "Pixel array has to be 2D (implicitly 1 channel, "
                 "2D shape) or 3D+ (n_channels, 2D+ shape) "
                 " - a {}D array "
-                "was provided".format(image_data.ndim))
+                "was provided".format(image_data.ndimension()))
         self.pixels = image_data
 
     @classmethod
-    def init_blank(cls, shape, n_channels=1, fill=0, dtype=np.float):
+    def init_blank(cls, shape, n_channels=1, fill=0, dtype=torch.float):
         r"""
         Returns a blank image.
 
@@ -281,7 +282,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             The number of channels to create the image with.
         fill : `int`, optional
             The value to fill all pixels with.
-        dtype : numpy data type, optional
+        dtype : torch data type, optional
             The data type of the image.
 
         Returns
@@ -290,11 +291,11 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             A new image of the requested size.
         """
         # Ensure that the '+' operator means concatenate tuples
-        shape = tuple(np.ceil(shape).astype(np.int))
+        shape = tuple(torch.ceil(shape).to(torch.int))
         if fill == 0:
-            pixels = np.zeros((n_channels,) + shape, dtype=dtype)
+            pixels = torch.zeros((n_channels,) + shape, dtype=dtype)
         else:
-            pixels = np.ones((n_channels,) + shape, dtype=dtype) * fill
+            pixels = torch.ones((n_channels,) + shape, dtype=dtype) * fill
         # We know there is no need to copy...
         return cls(pixels, copy=False)
 
@@ -351,7 +352,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
 
     @classmethod
     def init_from_pointcloud(cls, pointcloud, group=None, boundary=0,
-                             n_channels=1, fill=0, dtype=np.float,
+                             n_channels=1, fill=0, dtype=torch.float,
                              return_transform=False):
         r"""
         Create an Image that is big enough to contain the given pointcloud.
@@ -528,7 +529,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
 
         :type: `float`
         """
-        return np.sqrt(np.sum(np.array(self.shape) ** 2))
+        return torch.sqrt(torch.sum(torch.tensor(self.shape) ** 2))
 
     def centre(self):
         r"""
@@ -539,7 +540,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
 
         :type: (``n_dims``,) `ndarray`
         """
-        return np.array(self.shape, dtype=np.double) / 2
+        return torch.tensor(self.shape, dtype=torch.float) / 2
 
     def _str_shape(self):
         if self.n_dims > 2:
@@ -578,9 +579,9 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             and channel information.
         """
         if keep_channels:
-            return self.pixels.reshape([self.n_channels, -1])
+            return self.pixels.view([self.n_channels, -1])
         else:
-            return self.pixels.ravel()
+            return self.pixels.flatten()
 
     def from_vector(self, vector, n_channels=None, copy=True):
         r"""
@@ -618,7 +619,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         # This is useful for when we want to add an extra channel to an image
         # but maintain the shape. For example, when calculating the gradient
         n_channels = self.n_channels if n_channels is None else n_channels
-        image_data = vector.reshape((n_channels,) + self.shape)
+        image_data = vector.view((n_channels,) + self.shape)
         new_image = Image(image_data, copy=copy)
         new_image.landmarks = self.landmarks
         return new_image
@@ -648,16 +649,18 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         the operation, in contrast to :map:`MaskedImage`, where only the masked
         region is used in :meth:`from_vector_inplace` and :meth:`as_vector`.
         """
-        image_data = vector.reshape(self.pixels.shape)
+        image_data = vector.view(self.pixels.shape)
+        if isinstance(image_data, np.ndarray):
+            image_data = torch.from_numpy(image_data)
+
         if not copy:
-            if not image_data.flags.c_contiguous:
+            if not image_data.is_contiguous():
+                image_data = image_data.contiguous()
                 warn('The copy flag was NOT honoured. A copy HAS been made. '
-                     'Please ensure the data you pass is C-contiguous.')
-                image_data = np.array(image_data, copy=True, order='C',
-                                      dtype=image_data.dtype)
+                     'Please ensure the data you pass is contiguous.')
         else:
-            image_data = np.array(image_data, copy=True, order='C',
-                                  dtype=image_data.dtype)
+            image_data = torch.tensor(image_data).clone()
+
         self.pixels = image_data
 
     def extract_channels(self, channels):
@@ -674,7 +677,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         image : `type(self)`
             A copy of this image with only the channels requested.
         """
-        copy = self.copy()
+        copy = self.clone()
         if not isinstance(channels, list):
             channels = [channels]  # ensure we don't remove the channel axis
         copy.pixels = self.pixels[channels]
@@ -733,7 +736,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             raise ValueError("Bins can be either 'unique', positive int or a "
                              "sequence of scalars.")
         # compute histogram
-        vec = self.as_vector(keep_channels=keep_channels)
+        vec = self.as_vector(keep_channels=keep_channels).cpu().detach().numpy()
         if len(vec.shape) == 1 or vec.shape[0] == 1:
             if bins == 0:
                 bins = np.unique(vec)
@@ -748,7 +751,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
                 h_tmp, c_tmp = np.histogram(vec[ch, :], bins=num_bins)
                 hist.append(h_tmp)
                 bin_edges.append(c_tmp)
-        return hist, bin_edges
+        return torch.tensor(hist), torch.tensor(bin_edges)
 
     def _view_2d(self, figure_id=None, new_figure=False, channels=None,
                  interpolation='bilinear', cmap_name=None, alpha=1.,
@@ -756,7 +759,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
                  axes_font_size=10, axes_font_style='normal',
                  axes_font_weight='normal', axes_x_limits=None,
                  axes_y_limits=None, axes_x_ticks=None, axes_y_ticks=None,
-                 figure_size=(7, 7)):
+                 figure_size=(10, 8)):
         r"""
         View the image using the default image viewer. This method will appear 
         on the Image as ``view`` if the Image is 2D.
@@ -828,7 +831,8 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             The image viewing object.
         """
         return ImageViewer(figure_id, new_figure, self.n_dims,
-                           self.pixels, channels=channels).render(
+                           self.pixels.cpu().detach().numpy(),
+                           channels=channels).render(
             interpolation=interpolation, cmap_name=cmap_name, alpha=alpha,
             render_axes=render_axes, axes_font_name=axes_font_name,
             axes_font_size=axes_font_size, axes_font_style=axes_font_style,
@@ -836,21 +840,30 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             axes_y_limits=axes_y_limits, axes_x_ticks=axes_x_ticks,
             axes_y_ticks=axes_y_ticks, figure_size=figure_size)
 
-    def view_widget(self, figure_size=(7, 7)):
+    def view_widget(self, browser_style='buttons', figure_size=(10, 8),
+                    style='coloured'):
         r"""
-        Visualizes the image using an interactive widget.
+        Visualizes the image object using an interactive widget. Currently
+        only supports the rendering of 2D images.
 
         Parameters
         ----------
+        browser_style : {``'buttons'``, ``'slider'``}, optional
+            It defines whether the selector of the images will have the form of
+            plus/minus buttons or a slider.
         figure_size : (`int`, `int`), optional
             The initial size of the rendered figure.
+        style : {``'coloured'``, ``'minimal'``}, optional
+            If ``'coloured'``, then the style of the widget will be coloured. If
+            ``minimal``, then the style is simple using black and white colours.
         """
         try:
-            from menpowidgets import view_widget
-            view_widget(self, figure_size=figure_size)
-        except ImportError as e:
+            from menpowidgets import visualize_images
+            visualize_images(self, figure_size=figure_size, style=style,
+                             browser_style=browser_style)
+        except ImportError:
             from menpo.visualize.base import MenpowidgetsMissingError
-            raise MenpowidgetsMissingError(e)
+            raise MenpowidgetsMissingError()
 
     def _view_landmarks_2d(self, channels=None, group=None,
                            with_labels=None, without_labels=None,
@@ -881,7 +894,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
                            axes_font_style='normal', axes_font_weight='normal',
                            axes_x_limits=None, axes_y_limits=None,
                            axes_x_ticks=None, axes_y_ticks=None,
-                           figure_size=(7, 7)):
+                           figure_size=(10, 8)):
         """
         Visualize the landmarks. This method will appear on the Image as
         ``view_landmarks`` if the Image is 2D.
@@ -1118,9 +1131,9 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
 
         Parameters
         ----------
-        min_indices : ``(n_dims,)`` `ndarray`
+        min_indices : ``(n_dims,)`` `torch.Tensor`
             The minimum index over each dimension.
-        max_indices : ``(n_dims,)`` `ndarray`
+        max_indices : ``(n_dims,)`` `torch.Tensor`
             The maximum index over each dimension.
         constrain_to_boundary : `bool`, optional
             If ``True`` the crop will be snapped to not go beyond this images
@@ -1148,25 +1161,25 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             Raised if ``constrain_to_boundary=False``, and an attempt is made
             to crop the image in a way that violates the image bounds.
         """
-        min_indices = np.floor(min_indices)
-        max_indices = np.ceil(max_indices)
+        min_indices = torch.floor(min_indices)
+        max_indices = torch.ceil(max_indices)
         if not (min_indices.size == max_indices.size == self.n_dims):
             raise ValueError(
                 "Both min and max indices should be 1D numpy arrays of"
                 " length n_dims ({})".format(self.n_dims))
-        elif not np.all(max_indices > min_indices):
+        elif not (max_indices > min_indices).all():
             raise ValueError("All max indices must be greater that the min "
                              "indices")
         min_bounded = self.constrain_points_to_bounds(min_indices)
         max_bounded = self.constrain_points_to_bounds(max_indices)
-        all_max_bounded = np.all(min_bounded == min_indices)
-        all_min_bounded = np.all(max_bounded == max_indices)
+        all_max_bounded = (min_bounded == min_indices).all()
+        all_min_bounded = (max_bounded == max_indices).all()
         if not (constrain_to_boundary or all_max_bounded or all_min_bounded):
             # points have been constrained and the user didn't want this -
             raise ImageBoundaryError(min_indices, max_indices,
                                      min_bounded, max_bounded)
 
-        new_shape = (max_bounded - min_bounded).astype(np.int)
+        new_shape = (max_bounded - min_bounded).to(torch.int)
         return self.warp_to_shape(new_shape, Translation(min_bounded), order=0,
                                   warp_landmarks=True,
                                   return_transform=return_transform)
@@ -1247,7 +1260,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             Raised if ``constrain_to_boundary=False``, and an attempt is made
             to crop the image in a way that violates the image bounds.
         """
-        pc = self.landmarks[group]
+        pc = self.landmarks[group].lms
         return self.crop_to_pointcloud(
             pc, boundary=boundary, constrain_to_boundary=constrain_to_boundary,
             return_transform=return_transform)
@@ -1258,7 +1271,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
                                       return_transform=False):
         r"""
         Return a copy of this image cropped so that it is bounded around a
-        pointcloud with a border proportional to the pointcloud spread or range.
+        pointcloud with an optional ``n_pixel`` boundary.
 
         Parameters
         ----------
@@ -1297,9 +1310,9 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             to crop the image in a way that violates the image bounds.
         """
         if minimum:
-            boundary = boundary_proportion * np.min(pointcloud.range())
+            boundary = boundary_proportion * torch.min(pointcloud.range())
         else:
-            boundary = boundary_proportion * np.max(pointcloud.range())
+            boundary = boundary_proportion * torch.max(pointcloud.range())
         return self.crop_to_pointcloud(
             pointcloud, boundary=boundary,
             constrain_to_boundary=constrain_to_boundary,
@@ -1350,7 +1363,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             Raised if ``constrain_to_boundary=False``, and an attempt is made
             to crop the image in a way that violates the image bounds.
         """
-        pc = self.landmarks[group]
+        pc = self.landmarks[group].lms
         return self.crop_to_pointcloud_proportion(
             pc, boundary_proportion, minimum=minimum,
             constrain_to_boundary=constrain_to_boundary,
@@ -1374,7 +1387,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         # check we don't stray under any edges
         bounded_points[bounded_points < 0] = 0
         # check we don't stray over any edges
-        shape = np.array(self.shape)
+        shape = torch.tensor(self.shape)
         over_image = (shape - bounded_points) < 0
         bounded_points[over_image] = shape[over_image]
         return bounded_points
@@ -1429,14 +1442,14 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
                              'currently supported.')
 
         if sample_offsets is None:
-            sample_offsets = np.zeros([1, 2], dtype=np.intp)
+            sample_offsets = torch.zeros([1, 2], dtype=torch.int)
         else:
-            sample_offsets = np.require(sample_offsets, dtype=np.intp)
+            sample_offsets = sample_offsets.clone().to(torch.int)
 
-        patch_centers = np.require(patch_centers.points, dtype=np.float,
-                                   requirements=['C'])
+        patch_centers = patch_centers.points.clone().to(
+            torch.int).contiguous()
         single_array = extract_patches(self.pixels, patch_centers,
-                                       np.asarray(patch_shape, dtype=np.intp),
+                                       torch.tensor(patch_shape, dtype=torch.int),
                                        sample_offsets)
 
         if as_single_array:
@@ -1484,7 +1497,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         ValueError
             If image is not 2D
         """
-        return self.extract_patches(self.landmarks[group],
+        return self.extract_patches(self.landmarks[group].lms,
                                     patch_shape=patch_shape,
                                     sample_offsets=sample_offsets,
                                     as_single_array=as_single_array)
@@ -1537,13 +1550,13 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             raise ValueError('Only two dimensional patch insertion is '
                              'currently supported.')
         if offset is None:
-            offset = np.zeros([1, 2], dtype=np.intp)
+            offset = torch.zeros([1, 2], dtype=torch.intp)
         elif isinstance(offset, tuple) or isinstance(offset, list):
-            offset = np.asarray([offset])
-        offset = np.require(offset, dtype=np.intp)
+            offset = torch.asarray([offset])
+        offset = offset.contiguous().to(torch.int)
         if not offset.shape == (1, 2):
             raise ValueError('The offset must be a tuple, a list or a '
-                             'numpy.array with shape (1, 2).')
+                             'torch.Tensor with shape (1, 2).')
         if offset_index is None:
             offset_index = 0
 
@@ -1601,7 +1614,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         ValueError
             If offset does not have shape (1, 2)
         """
-        return self.set_patches(patches, self.landmarks[group],
+        return self.set_patches(patches, self.landmarks[group].lms,
                                 offset=offset, offset_index=offset_index)
 
     def warp_to_mask(self, template_mask, transform, warp_landmarks=True,
@@ -1669,13 +1682,13 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
                 "Trying to warp a {}D image with a {}D transform "
                 "(they must match)".format(self.n_dims, transform.n_dims))
         template_points = template_mask.true_indices()
-        points_to_sample = transform.apply(template_points,
+        sample_grid = transform.apply(template_points,
                                            batch_size=batch_size)
-        sampled = self.sample(points_to_sample,
+        sampled = self.sample(sample_grid,
                               order=order, mode=mode, cval=cval)
 
         # set any nan values to 0
-        sampled[np.isnan(sampled)] = 0
+        sampled[torch.isnan(sampled)] = 0
         # build a warped version of the image
         warped_image = self._build_warp_to_mask(template_mask, sampled)
         if warp_landmarks and self.has_landmarks:
@@ -1707,7 +1720,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         warped_image = MaskedImage.init_blank(template_mask.shape,
                                               n_channels=self.n_channels,
                                               mask=template_mask)
-        warped_image._from_vector_inplace(sampled_pixel_values.ravel())
+        warped_image._from_vector_inplace(sampled_pixel_values.flatten())
         return warped_image
 
     def sample(self, points_to_sample, order=1, mode='constant', cval=0.0):
@@ -1803,7 +1816,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             The transform that was used. It only applies if
             `return_transform` is ``True``.
         """
-        template_shape = np.array(template_shape, dtype=np.int)
+        template_shape = torch.tensor(template_shape, dtype=torch.int)
         if (isinstance(transform, Affine) and order in range(4) and
             self.n_dims == 2):
 
@@ -1814,17 +1827,17 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
                 # in the bounds then we can just do a copy. We need to match
                 # the behavior of cython_interpolation exactly, which means
                 # matching its rounding behavior too:
-                t = transform.translation_component.copy()
+                t = transform.translation_component.clone()
                 pos_t = t > 0.0
                 t[pos_t] += 0.5
                 t[~pos_t] -= 0.5
-                min_ = t.astype(np.int)
+                min_ = t.to(torch.int)
                 max_ = template_shape + min_
-                if np.all(max_ <= np.array(self.shape)) and np.all(min_ >= 0):
+                if (max_ <= torch.tensor(self.shape)).all() and (min_ >= 0).all():
                     # we have a crop - slice the pixels.
                     warped_pixels = self.pixels[:,
                                     int(min_[0]):int(max_[0]),
-                                    int(min_[1]):int(max_[1])].copy()
+                                    int(min_[1]):int(max_[1])].clone()
                     return self._build_warp_to_shape(warped_pixels, transform,
                                                      warp_landmarks,
                                                      return_transform)
@@ -1843,7 +1856,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         # set any nan values to 0
         sampled[np.isnan(sampled)] = 0
         # build a warped version of the image
-        warped_pixels = sampled.reshape(
+        warped_pixels = sampled.view(
             (self.n_channels,) + tuple(template_shape))
 
         return self._build_warp_to_shape(warped_pixels, transform,
@@ -1928,7 +1941,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             scale = [scale] * self.n_dims
 
         # Make sure we have a numpy array
-        scale = np.asarray(scale)
+        scale = torch.tensor(scale)
         for s in scale:
             if s <= 0:
                 raise ValueError('Scales must be positive floats.')
@@ -1944,7 +1957,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         #    H 2 -> 6 so [0-1] -> [0-5] = 5/1 = 5x
         #    W 4 -> 12 [0-3] -> [0-11] = 11/3 = 3.67x
         # => need to make the correct scale per dimension!
-        shape = np.array(self.shape, dtype=np.float)
+        shape = torch.tensor(self.shape, dtype=torch.float)
         # scale factors = max_index_after / current_max_index
         # (note that max_index = length - 1, as 0 based)
         scale_factors = (scale * shape - 1) / (shape - 1)
@@ -2026,8 +2039,8 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             The transform that was used. It only applies if
             `return_transform` is ``True``.
         """
-        pc = self.landmarks[group]
-        scale = AlignmentUniformScale(pc, pointcloud).as_vector().copy()
+        pc = self.landmarks[group].lms
+        scale = AlignmentUniformScale(pc, pointcloud).as_vector().clone()
         return self.rescale(scale, round=round, order=order,
                             return_transform=return_transform)
 
@@ -2075,8 +2088,8 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             The transform that was used. It only applies if
             `return_transform` is ``True``.
         """
-        x, y = self.landmarks[group].range()
-        scale = diagonal_range / np.sqrt(x ** 2 + y ** 2)
+        x, y = self.landmarks[group].lms.range()
+        scale = diagonal_range / torch.sqrt(x ** 2 + y ** 2)
         return self.rescale(scale, round=round, order=order,
                             return_transform=return_transform)
 
@@ -2122,7 +2135,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             If the number of dimensions of the new shape does not match
             the number of dimensions of the image.
         """
-        shape = np.asarray(shape, dtype=np.float)
+        shape = torch.tensor(shape, dtype=torch.float)
         if len(shape) != self.n_dims:
             raise ValueError(
                 'Dimensions must match.'
@@ -2373,7 +2386,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         else:
             # Get image's bounding box coordinates
             original_bbox = bounding_box((0, 0),
-                                         np.array(self.shape) - 1)
+                                         torch.tensor(self.shape) - 1)
             # Translate to origin and apply transform
             trans = Translation(-self.centre(),
                                 skip_checks=True).compose_before(transform)
@@ -2428,10 +2441,10 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
 
         # Create transform that includes ...
         # ... flipping about the selected axis ...
-        rot_matrix = np.eye(self.n_dims)
+        rot_matrix = torch.eye(self.n_dims)
         rot_matrix[axis, axis] = -1
         # ... and translating back to the image's bbox
-        tr_matrix = np.zeros(self.n_dims)
+        tr_matrix = torch.zeros(self.n_dims)
         tr_matrix[axis] = self.shape[axis] - 1
 
         # Create transform object
@@ -2538,17 +2551,17 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             # Only compute the coefficients once.
             global _greyscale_luminosity_coef
             if _greyscale_luminosity_coef is None:
-                _greyscale_luminosity_coef = np.linalg.inv(
-                    np.array([[1.0, 0.956, 0.621],
+                _greyscale_luminosity_coef = torch.inverse(
+                   torch.tensor([[1.0, 0.956, 0.621],
                               [1.0, -0.272, -0.647],
                               [1.0, -1.106, 1.703]]))[0, :]
             # Compute greyscale via dot product
-            pixels = np.dot(_greyscale_luminosity_coef,
-                            greyscale.pixels.reshape(3, -1))
+            pixels = torch.dot(_greyscale_luminosity_coef,
+                            greyscale.pixels.view(3, -1))
             # Reshape image back to original shape (with 1 channel)
-            pixels = pixels.reshape(greyscale.shape)
+            pixels = pixels.view(greyscale.shape)
         elif mode == 'average':
-            pixels = np.mean(greyscale.pixels, axis=0)
+            pixels = torch.mean(greyscale.pixels, dim=0)
         elif mode == 'channel':
             if channel is None:
                 raise ValueError("For the 'channel' mode you have to provide"
@@ -2559,11 +2572,10 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
                              "'average' or 'channel'.".format(mode))
 
         # Set new pixels - ensure channel axis and maintain
-        greyscale.pixels = pixels[None, ...].astype(greyscale.pixels.dtype,
-                                                    copy=False)
+        greyscale.pixels = pixels[None, ...].to(greyscale.pixels.dtype)
         return greyscale
 
-    def as_PILImage(self, out_dtype=np.uint8):
+    def as_PILImage(self, out_dtype=torch.uint8):
         r"""
         Return a PIL copy of the image scaled and cast to the correct
         values for the provided ``out_dtype``.
@@ -2604,7 +2616,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         else:
             pixels = channels_to_back(self.pixels)
         pixels = denormalize_pixels_range(pixels, out_dtype)
-        return PILImage.fromarray(pixels)
+        return PILImage.fromarray(pixels.cpu().detach().numpy())
 
     def as_imageio(self, out_dtype=np.uint8):
         r"""
@@ -2653,7 +2665,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
             pixels = self.pixels[0]
         else:
             pixels = channels_to_back(self.pixels)
-        return denormalize_pixels_range(pixels, out_dtype)
+        return denormalize_pixels_range(pixels, out_dtype).cpu().detach().numpy()
 
     def pixels_range(self):
         r"""
@@ -2699,7 +2711,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         p = channels_to_back(self.pixels)
         if out_dtype is not None:
             p = denormalize_pixels_range(p, out_dtype=out_dtype)
-        return np.squeeze(p)
+        return torch.squeeze(p)
 
     def __str__(self):
         return ('{} {}D Image with {} channel{}'.format(
@@ -2714,7 +2726,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         """
         if self.has_landmarks:
             for l_group in self.landmarks:
-                pc = self.landmarks[l_group].points
+                pc = self.landmarks[l_group].lms.points
                 if np.any(np.logical_or(self.shape - pc < 1, pc < 0)):
                     return True
         return False
@@ -2726,7 +2738,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         method. For example:
 
             >>> im.constrain_landmarks_to_bounds()  # Equivalent to below
-            >>> im.landmarks['test'] = im.landmarks['test'].constrain_to_bounds(im.bounds())
+            >>> im.landmarks['test'] = im.landmarks['test'].lms.constrain_to_bounds(im.bounds())
         """
         warn('This method is no longer supported and will be removed in a '
              'future version of Menpo. '
@@ -2735,11 +2747,11 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
 
         for l_group in self.landmarks:
             l = self.landmarks[l_group]
-            for k in range(l.points.shape[1]):
-                tmp = l.points[:, k]
+            for k in range(l.lms.points.shape[1]):
+                tmp = l.lms.points[:, k]
                 tmp[tmp < 0] = 0
                 tmp[tmp > self.shape[k] - 1] = self.shape[k] - 1
-                l.points[:, k] = tmp
+                l.lms.points[:, k] = tmp
             self.landmarks[l_group] = l
 
     def normalize_std(self, mode='all', **kwargs):
@@ -2763,7 +2775,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
              'future version of Menpo. '
              'Use .normalize_std() instead (features package).',
              MenpoDeprecationWarning)
-        return self._normalize(np.std, mode=mode)
+        return self._normalize(torch.std, mode=mode)
 
     def normalize_norm(self, mode='all', **kwargs):
         r"""
@@ -2788,7 +2800,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
              MenpoDeprecationWarning)
 
         def scale_func(pixels, axis=None):
-            return np.linalg.norm(pixels, axis=axis, **kwargs)
+            return torch.norm(pixels, dim=axis, **kwargs)
 
         return self._normalize(scale_func, mode=mode)
 
@@ -2799,7 +2811,7 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
     def rescale_pixels(self, minimum, maximum, per_channel=True):
         r"""A copy of this image with pixels linearly rescaled to fit a range.
 
-        Note that the only pixels that will be considered and rescaled are those
+        Note that the only pixels that will considered and rescaled are those
         that feature in the vectorized form of this image. If you want to use
         this routine on all the pixels in a :map:`MaskedImage`, consider
         using `as_unmasked()` prior to this call.
@@ -2822,48 +2834,12 @@ class Image(Vectorizable, Landmarkable, Viewable, LandmarkableViewable):
         """
         v = self.as_vector(keep_channels=True).T
         if per_channel:
-            min_, max_ = v.min(axis=0), v.max(axis=0)
+            min_, max_ = v.min(dim=0), v.max(dim=0)
         else:
             min_, max_ = v.min(), v.max()
         sf = ((maximum - minimum) * 1.0) / (max_ - min_)
         v_new = ((v - min_) * sf) + minimum
-        return self.from_vector(v_new.T.ravel())
-
-    def clip_pixels(self, minimum=None, maximum=None):
-        r"""A copy of this image with pixels linearly clipped to fit a range.
-
-        Parameters
-        ----------
-        minimum: `float`, optional
-            The minimal value of the clipped pixels. If None is provided, the
-            default value will be 0.
-        maximum: `float`, optional
-            The maximal value of the clipped pixels. If None is provided, the
-            default value will depend on the dtype.
-
-        Returns
-        -------
-        rescaled_image: ``type(self)``
-            A copy of this image with pixels linearly rescaled to fit in the
-            range provided.
-        """
-        if minimum is None:
-            minimum = 0
-        if maximum is None:
-            dtype = self.pixels.dtype
-            if dtype == np.uint8:
-                maximum = 255
-            elif dtype == np.uint16:
-                maximum = 65535
-            elif dtype in [np.float32, np.float64]:
-                maximum = 1.0
-            else:
-                m1 = 'Could not recognise the dtype ({}) to set the maximum.'
-                raise ValueError(m1.format(dtype))
-
-        copy = self.copy()
-        copy.pixels = copy.pixels.clip(min=minimum, max=maximum)
-        return copy
+        return self.from_vector(v_new.T.flatten())
 
     def rasterize_landmarks(self, group=None, render_lines=True, line_style='-',
                             line_colour='b', line_width=1, render_markers=True,
@@ -2967,16 +2943,16 @@ def _convert_patches_list_to_single_array(patches_list, n_center):
     patches_array : `ndarray` ``(n_center, n_offset, n_channels, patch_shape)``
         The numpy array that contains all the patches.
     """
-    n_offsets = np.int(len(patches_list) / n_center)
+    n_offsets = int(len(patches_list) / n_center)
     n_channels = patches_list[0].n_channels
     height = patches_list[0].height
     width = patches_list[0].width
-    patches_array = np.empty((n_center, n_offsets, n_channels, height, width),
+    patches_array = torch.empty((n_center, n_offsets, n_channels, height, width),
                              dtype=patches_list[0].pixels.dtype)
     total_index = 0
     for p in range(n_center):
         for o in range(n_offsets):
-            patches_array[p, o, ...] = patches_list[total_index].pixels
+            patches_array[p, o, ...] = patches_list[total_index].pixels.clone()
             total_index += 1
     return patches_array
 
@@ -2986,9 +2962,10 @@ def _create_patches_image(patches, patch_centers, patches_indices=None,
     r"""
     Creates an :map:`Image` object in which the patches are located on the
     correct regions based on the centers. Thus, the image is a block-sparse
-    matrix. It has also attached a `patch_Centers` :map:`PointCloud`
-    object with the centers that correspond to the patches that the user
-    selected to set.
+    matrix. It has also two attached :map:`LandmarkGroup` objects. The
+    `all_patch_centers` one contains all the patch centers, while the
+    `selected_patch_centers` one contains only the centers that correspond to
+    the patches that the user selected to set.
 
     The patches argument can have any of the two formats that are returned
     from the `extract_patches()` and `extract_patches_around_landmarks()`
@@ -3038,7 +3015,8 @@ def _create_patches_image(patches, patch_centers, patches_indices=None,
     if offset_index is None:
         offset_index = 0
     if patches_indices is None:
-        patches_indices = np.arange(patches.shape[0])
+        patches_indices = torch.arange(patches.shape[0], device=patches.device,
+        dtype=torch.long)
     elif not isinstance(patches_indices, Iterable):
         patches_indices = [patches_indices]
 
@@ -3046,42 +3024,41 @@ def _create_patches_image(patches, patch_centers, patches_indices=None,
     n_channels = patches.shape[2]
     patch_shape0 = patches.shape[3]
     patch_shape1 = patches.shape[4]
-    top, left = np.min(patch_centers.points, 0)
-    bottom, right = np.max(patch_centers.points, 0)
-    min_0 = np.floor(top - patch_shape0)
-    min_1 = np.floor(left - patch_shape1)
-    max_0 = np.ceil(bottom + patch_shape0)
-    max_1 = np.ceil(right + patch_shape1)
+    top, left = torch.min(patch_centers.points, 0)
+    bottom, right = torch.max(patch_centers.points, 0)
+    min_0 = torch.floor(top - patch_shape0)
+    min_1 = torch.floor(left - patch_shape1)
+    max_0 = torch.ceil(bottom + patch_shape0)
+    max_1 = torch.ceil(right + patch_shape1)
     height = max_0 - min_0 + 1
     width = max_1 - min_1 + 1
 
     # Translate the patch centers to fit in the new image
     new_patch_centers = patch_centers.copy()
-    new_patch_centers.points = patch_centers.points - np.array([[min_0, min_1]])
+    new_patch_centers.points = patch_centers.points - torch.tensor([[min_0, min_1]])
+
+    # Create temporary pointcloud with the selected patch centers
+    tmp_centers = PointCloud(new_patch_centers.points[patches_indices])
 
     # Create new image with the correct background values
     if background == 'black':
         patches_image = Image.init_blank(
             (height, width), n_channels,
-            fill=np.min(patches[patches_indices]),
+            fill=torch.min(patches[patches_indices]),
             dtype=patches.dtype)
     elif background == 'white':
         patches_image = Image.init_blank(
             (height, width), n_channels,
-            fill=np.max(patches[patches_indices]),
+            fill=torch.max(patches[patches_indices]),
             dtype=patches.dtype)
     else:
         raise ValueError('Background must be either ''black'' or ''white''.')
 
-    # If there was no slicing on the patches, then attach the original patch
-    # centers. Otherwise, attach the sliced ones.
-    if set(patches_indices) == set(range(patches.shape[0])):
-        patches_image.landmarks['patch_centers'] = new_patch_centers
-    else:
-        tmp_centers = PointCloud(new_patch_centers.points[patches_indices])
-        patches_image.landmarks['patch_centers'] = tmp_centers
+    # Attach the corrected patch centers
+    patches_image.landmarks['all_patch_centers'] = new_patch_centers
+    patches_image.landmarks['selected_patch_centers'] = tmp_centers
 
     # Set the patches
     return patches_image.set_patches_around_landmarks(
-        patches[patches_indices], group='patch_centers',
+        patches[patches_indices], group='selected_patch_centers',
         offset_index=offset_index)
